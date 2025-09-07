@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>랜덤 발표자 선정 프로그램</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS (xlsx) library for reading Excel files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&family=Nanum+Gothic+Coding:wght@700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #111827; /* 다크 그레이 배경 */
+            color: #F9FAFB; /* 밝은 텍스트 색상 */
+        }
+
+        /* 메인 제목 애니메이션 */
+        .winner-name {
+            animation: reveal 1s ease-in-out forwards;
+        }
+
+        @keyframes reveal {
+            0% {
+                transform: scale(0.5) translateY(50px);
+                opacity: 0;
+                filter: blur(10px);
+            }
+            100% {
+                transform: scale(1) translateY(0);
+                opacity: 1;
+                filter: blur(0);
+            }
+        }
+        
+        /* 카운트 다운 애니메이션 */
+        .countdown {
+            animation: countdown-pop 1s ease-out infinite;
+        }
+
+        @keyframes countdown-pop {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.5);
+                opacity: 0.7;
+            }
+        }
+        
+        /* 롤링 텍스트 애니메이션 */
+        .rolling-text {
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5), 0 0 20px rgba(75, 0, 130, 0.5);
+        }
+
+        /* 커스텀 체크박스 스타일 */
+        .custom-checkbox:checked {
+            background-image: url("data:image/svg+xml,%3csvg viewBox='0 0 16 16' fill='white' xmlns='http://www.w3.org/2000/svg'%3e%3cpath d='M12.207 4.793a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0l-2-2a1 1 0 011.414-1.414L6.5 9.086l4.293-4.293a1 1 0 011.414 0z'/%3e%3c/svg%3e");
+            background-color: #4F46E5;
+            border-color: #4F46E5;
+        }
+    </style>
+</head>
+<body class="flex flex-col md:flex-row h-screen overflow-hidden">
+
+    <!-- 메인 화면 -->
+    <main class="w-full md:w-3/4 h-full flex flex-col items-center justify-center p-8 transition-all duration-500">
+        <div id="initial-screen" class="text-center">
+            <h1 class="text-5xl font-bold mb-4 text-indigo-400">랜덤 발표자 선정</h1>
+            <p class="text-gray-400 mb-8">엑셀 파일을 업로드하여 발표자를 선정하세요.</p>
+            <div class="flex items-center justify-center space-x-4">
+                <label for="file-upload" class="cursor-pointer bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-lg transition duration-300">
+                    명렬표 업로드 (.xlsx)
+                </label>
+                <input id="file-upload" type="file" class="hidden" accept=".xlsx, .xls">
+            </div>
+            <p id="file-name" class="mt-4 text-sm text-gray-500"></p>
+        </div>
+
+        <div id="selection-screen" class="hidden w-full h-full flex flex-col items-center justify-center text-center">
+             <!-- 결과가 표시될 영역 -->
+            <div id="result-display" class="relative flex items-center justify-center w-full h-64">
+                <p id="winner-placeholder" class="text-3xl text-gray-600">버튼을 눌러 발표자를 선정하세요</p>
+            </div>
+            <button id="select-button" class="mt-8 bg-green-500 hover:bg-green-600 disabled:bg-gray-500 text-white font-extrabold text-2xl py-6 px-12 rounded-xl shadow-lg transform hover:scale-105 transition duration-300">
+                발표자 선정!
+            </button>
+            <div class="mt-6 flex items-center">
+                <input id="allow-duplicates" type="checkbox" class="custom-checkbox h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 transition">
+                <label for="allow-duplicates" class="ml-2 text-gray-300">중복 선택 허용</label>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 우측 사이드바 (선정된 학생 목록) -->
+    <aside class="w-full md:w-1/4 h-full bg-gray-900 p-6 border-l border-gray-700 overflow-y-auto">
+        <h2 class="text-2xl font-bold mb-4 text-gray-300">전체 학생 목록</h2>
+        <p id="student-count" class="text-sm text-gray-500 mb-4">로드된 학생: 0명</p>
+        <ul id="student-list" class="space-y-2">
+            <!-- 학생 목록이 여기에 추가됩니다. -->
+        </ul>
+        <hr class="my-6 border-gray-700">
+        <h2 class="text-2xl font-bold mb-4 text-gray-300">선정된 발표자</h2>
+        <ul id="selected-list" class="space-y-2">
+            <!-- 선정된 학생 이름이 여기에 추가됩니다. -->
+             <li class="text-gray-500">아직 선정된 학생이 없습니다.</li>
+        </ul>
+    </aside>
+
+    <script>
+        // DOM 요소 가져오기
+        const initialScreen = document.getElementById('initial-screen');
+        const selectionScreen = document.getElementById('selection-screen');
+        const fileUpload = document.getElementById('file-upload');
+        const fileNameDisplay = document.getElementById('file-name');
+        const selectButton = document.getElementById('select-button');
+        const allowDuplicatesCheckbox = document.getElementById('allow-duplicates');
+        const resultDisplay = document.getElementById('result-display');
+        const winnerPlaceholder = document.getElementById('winner-placeholder');
+        const studentCountDisplay = document.getElementById('student-count');
+        const studentListUl = document.getElementById('student-list');
+        const selectedListUl = document.getElementById('selected-list');
+        
+        // 상태 변수
+        let students = [];
+        let availableStudents = [];
+        let selectedStudents = [];
+        let isAnimating = false;
+
+        // 파일 업로드 이벤트 리스너
+        fileUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            fileNameDisplay.textContent = `파일명: ${file.name}`;
+            const reader = new FileReader();
+
+            reader.onload = (e) => {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                // A열의 모든 데이터를 JSON으로 변환
+                const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+                
+                // 학생 이름 목록 초기화 및 로드
+                students = json.map(row => row[0]).filter(name => name); // 이름이 있는 행만 필터링
+                availableStudents = [...students];
+                selectedStudents = [];
+                
+                // UI 업데이트
+                updateStudentList();
+                updateSelectedList();
+                
+                initialScreen.classList.add('hidden');
+                selectionScreen.classList.remove('hidden');
+                selectButton.disabled = false;
+            };
+
+            reader.onerror = () => {
+                alert('파일을 읽는 중 오류가 발생했습니다.');
+            };
+
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 발표자 선정 버튼 클릭 이벤트 리스너
+        selectButton.addEventListener('click', () => {
+            if (isAnimating) return;
+
+            const allowDuplicates = allowDuplicatesCheckbox.checked;
+            let selectionPool = allowDuplicates ? students : availableStudents;
+
+            if (selectionPool.length === 0) {
+                resultDisplay.innerHTML = `<p class="text-3xl text-red-500 font-bold">더 이상 선정할 학생이 없습니다!</p>`;
+                return;
+            }
+
+            isAnimating = true;
+            selectButton.disabled = true;
+            selectButton.textContent = '선정 중...';
+            startAnimation(selectionPool);
+        });
+        
+        // 애니메이션 및 선정 로직
+        function startAnimation(pool) {
+            winnerPlaceholder.classList.add('hidden');
+            let countdown = 5;
+
+            // 1. 카운트다운
+            resultDisplay.innerHTML = `<p id="countdown-display" class="countdown text-9xl font-black text-yellow-400">${countdown}</p>`;
+            const countdownDisplay = document.getElementById('countdown-display');
+
+            const countdownInterval = setInterval(() => {
+                countdown--;
+                if (countdown > 0) {
+                    countdownDisplay.textContent = countdown;
+                } else {
+                    clearInterval(countdownInterval);
+                    // 2. 이름 롤링
+                    startNameRolling(pool);
+                }
+            }, 1000);
+        }
+
+        function startNameRolling(pool) {
+            resultDisplay.innerHTML = `<p id="rolling-text-display" class="rolling-text text-7xl font-bold"></p>`;
+            const rollingTextDisplay = document.getElementById('rolling-text-display');
+            let rollingCount = 0;
+            const rollingInterval = setInterval(() => {
+                rollingTextDisplay.textContent = pool[Math.floor(Math.random() * pool.length)];
+                rollingCount++;
+                if (rollingCount > 30) { // 약 3초간 롤링
+                    clearInterval(rollingInterval);
+                    // 3. 최종 당첨자 발표
+                    selectWinner(pool);
+                }
+            }, 100);
+        }
+
+        function selectWinner(pool) {
+            const winnerIndex = Math.floor(Math.random() * pool.length);
+            const winner = pool[winnerIndex];
+
+            // 당첨자 이름 표시
+            resultDisplay.innerHTML = `<h1 class="winner-name text-9xl font-black text-green-400" style="text-shadow: 0 0 20px rgba(52, 211, 153, 0.7);">${winner}</h1>`;
+
+            // 선정 목록 업데이트
+            selectedStudents.push(winner);
+            updateSelectedList();
+
+            // 중복 비허용 시, 선정 가능 목록에서 제거
+            if (!allowDuplicatesCheckbox.checked) {
+                availableStudents = availableStudents.filter(student => student !== winner);
+            }
+            
+            // 애니메이션 종료 및 버튼 활성화
+            isAnimating = false;
+            selectButton.textContent = '발표자 선정!';
+            // 남은 학생이 없으면 비활성화
+            if (!allowDuplicatesCheckbox.checked && availableStudents.length === 0) {
+                selectButton.disabled = true;
+            } else {
+                selectButton.disabled = false;
+            }
+        }
+
+
+        // 전체 학생 목록 UI 업데이트
+        function updateStudentList() {
+            studentListUl.innerHTML = '';
+            studentCountDisplay.textContent = `로드된 학생: ${students.length}명`;
+            if (students.length === 0) {
+                 studentListUl.innerHTML = '<li class="text-gray-500">엑셀 파일을 업로드 하세요.</li>';
+            } else {
+                students.forEach(name => {
+                    const li = document.createElement('li');
+                    li.textContent = name;
+                    li.className = 'bg-gray-800 p-2 rounded-md text-gray-300';
+                    studentListUl.appendChild(li);
+                });
+            }
+        }
+
+        // 선정된 학생 목록 UI 업데이트
+        function updateSelectedList() {
+            selectedListUl.innerHTML = '';
+            if (selectedStudents.length === 0) {
+                selectedListUl.innerHTML = '<li class="text-gray-500">아직 선정된 학생이 없습니다.</li>';
+            } else {
+                selectedStudents.forEach((name, index) => {
+                    const li = document.createElement('li');
+                    li.className = 'flex justify-between items-center bg-indigo-900/50 p-3 rounded-lg';
+                    li.innerHTML = `
+                        <span class="font-bold text-indigo-300">${index + 1}. ${name}</span>
+                    `;
+                    selectedListUl.appendChild(li);
+                });
+            }
+        }
+
+        // 초기화 함수 호출
+        updateStudentList();
+
+    </script>
+</body>
+</html>
